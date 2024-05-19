@@ -29,7 +29,7 @@ fn main() {
                     s.write(response.as_bytes()).expect("Write failed");
                     continue;
                 }
-                s.write(b"HTTP/1.1 404 NOT FOUND\r\n\r\n")
+                s.write(b"HTTP/1.1 404 Not Found\r\n\r\n")
                     .expect("Write failed");
             }
             Err(e) => {
