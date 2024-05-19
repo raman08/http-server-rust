@@ -24,7 +24,7 @@ fn main() {
                 println!("Path: {:?}", path);
 
                 if path == &"/" {
-                    s.write(b"HTTP/1.1 200 \r\n\r\n").expect("Write failed");
+                    s.write(b"HTTP/1.1 200 OK\r\n\r\n").expect("Write failed");
                     continue;
                 }
 
