@@ -25,7 +25,7 @@ fn main() {
 
                 if path.starts_with("/echo/") {
                     let tokens = path.replace("/echo/", "");
-                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {:?}\r\n\r\n{:?}", tokens.len(), tokens.as_str());
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}", tokens.len(), tokens.as_str());
                     s.write(response.as_bytes()).expect("Write failed");
                     continue;
                 }
