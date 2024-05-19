@@ -20,11 +20,16 @@ fn main() {
 
                 println!("{:?}", lines);
 
-                if lines[0].split(" ").collect_vec()[1] == "/" {
-                    s.write(b"HTTP/1.1 200 OK\r\n\r\n").expect("Write failed");
+                let path = &lines[0].split(" ").collect_vec()[1].trim();
+                println!("Path: {:?}", path);
+
+                if path.starts_with("/echo/") {
+                    let tokens = path.replace("/echo/", "");
+                    let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {:?}\r\n\r\n{:?}", tokens.len(), tokens.as_str());
+                    s.write(response.as_bytes()).expect("Write failed");
                     continue;
                 }
-                s.write(b"HTTP/1.1 404 Not Found\r\n\r\n")
+                s.write(b"HTTP/1.1 404 NOT FOUND\r\n\r\n")
                     .expect("Write failed");
             }
             Err(e) => {
