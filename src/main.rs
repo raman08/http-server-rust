@@ -1,104 +1,122 @@
-use std::io::{BufRead, BufReader, Write};
+use anyhow::Result;
+use std::env;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::{env, fs};
 
 use itertools::Itertools;
 
-fn handle_request(mut stream: TcpStream, args: Vec<String>) {
-    let buf = BufReader::new(stream.try_clone().unwrap());
-    let lines = buf
-        .lines()
-        .map(|line| line.unwrap())
-        .take_while(|x| !x.is_empty())
-        .collect_vec();
+const RESPONSE_404: &str = "HTTP/1.1 404 Not Found\r\n\r\n";
+const RESPONSE_200: &str = "HTTP/1.1 200 OK";
+const RESPONSE_201: &str = "HTTP/1.1 201 Created";
 
-    let path = &lines[0].split(" ").collect_vec()[1].trim();
+fn handle_request(mut stream: TcpStream, request: String, dir: String) {
+    let (first_line, rest_lines) = request.split_once("\r\n").unwrap();
+    let (method, rest) = first_line.split_once(" ").unwrap();
 
-    if path == &"/" {
-        stream
-            .write(b"HTTP/1.1 200 OK\r\n\r\n")
-            .expect("Write failed");
-        return;
-    }
+    let response = match method {
+        "GET" => match rest.split_once(" ") {
+            Some((path, _)) => {
+                if path == "/" {
+                    format!("{}\r\n\r\n", RESPONSE_200).to_string()
+                } else if path.starts_with("/echo") {
+                    let word = path.strip_prefix("/echo/").unwrap();
+                    format!(
+                        "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                        RESPONSE_200,
+                        word.len(),
+                        word
+                    )
+                } else if path.starts_with("/user-agent") {
+                    let user_agent = rest_lines
+                        .split("\r\n")
+                        .find(|line| line.starts_with("User-Agent"))
+                        .unwrap()
+                        .strip_prefix("User-Agent: ")
+                        .unwrap();
 
-    if path.starts_with("/echo") {
-        let tokens = path.replace("/echo/", "");
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-            tokens.len(),
-            tokens.as_str()
-        );
-        stream.write(response.as_bytes()).expect("Write failed");
-        return;
-    }
+                    format!(
+                        "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                        RESPONSE_200,
+                        user_agent.len(),
+                        user_agent
+                    )
+                } else if path.starts_with("/files") {
+                    let file = path.strip_prefix("/files").unwrap();
 
-    if path.starts_with("/user-agent") {
-        let user_agent = lines
-            .iter()
-            .filter(|x| x.starts_with("User-Agent: "))
-            .map(|x| x.replace("User-Agent: ", ""))
-            .next()
-            .expect("User agent not found");
-
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-            user_agent.len(),
-            user_agent.as_str()
-        );
-        stream.write(response.as_bytes()).expect("Write failed");
-        return;
-    }
-
-    if path.starts_with("/files") {
-        let file_path = path.replace("/files/", "");
-
-        let mut dir_path = String::new();
-        if args[1] == "--directory" {
-            dir_path = args[2].clone();
-        }
-
-        let full_path = format!("{}/{}", dir_path, file_path);
-        let response = match fs::read_to_string(&full_path) {
-            Ok(content) => {
-                println!("File found: {:?}", content);
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n{}",
-                    content.len(),
-                    content.as_str()
-                )
+                    match std::fs::read_to_string(format!("{}/{}", dir, file)) {
+                        Ok(content) => {
+                            format!(
+                                "{}\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n{}",
+                                RESPONSE_200,
+                                content.len(),
+                                content
+                            )
+                        }
+                        Err(_) => RESPONSE_404.to_string(),
+                    }
+                } else {
+                    RESPONSE_404.to_string()
+                }
             }
-            Err(e) => {
-                println!("Error reading file({:?}): {:?}", &full_path, e);
-                String::from("HTTP/1.1 404 Not Found\r\n\r\n")
+            None => "HTTP/1.1 400 Bad Request\r\n\r\n".to_string(),
+        },
+        "POST" => match rest.split_once(" ") {
+            Some((path, _)) => {
+                if path.starts_with("/files") {
+                    let fname = path.strip_prefix("/files").unwrap();
+                    let mut file = File::create(format!("{}/{}", dir.to_owned(), fname)).unwrap();
+
+                    let content = rest_lines
+                        .split_once("\r\n\r\n").unwrap().1;
+
+                    dbg!(content);
+
+                    file.write_all(content.as_bytes()).unwrap();
+
+                    format!("{}\r\n\r\n", RESPONSE_201)
+
+                } else {
+                    RESPONSE_404.to_string()
+                }
             }
-        };
+            None => "HTTP/1.1 400 Bad Request\r\n\r\n".to_string(),
+        },
+        _ => "HTTP/1.1 405 Method Not Allowed\r\n\r\n".to_string(),
+    };
 
-        stream.write(response.as_bytes()).expect("Write failed");
-        return;
-    }
-
-    stream
-        .write(b"HTTP/1.1 404 Not Found\r\n\r\n")
-        .expect("Write failed");
+    stream.write(response.as_bytes()).unwrap();
 }
 
-fn main() {
+fn main() -> Result<()> {
     println!("Logs from your program will appear here!");
 
     let args = env::args().collect_vec();
+
+    let dir = if args.len() > 1 && args[1] == "--directory" {
+        args[2].clone()
+    } else {
+        String::from("")
+    };
 
     let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
 
     for stream in listener.incoming() {
         match stream {
-            Ok(s) => {
-                println!("Received Request {:?}", s);
-                let args_clone = args.clone();
-                std::thread::spawn(move || handle_request(s, args_clone));
+            Ok(mut s) => {
+                println!("new client!");
+                let mut request = [0_u8; 1024];
+                let bytes = s.read(&mut request).unwrap();
+                let request = String::from_utf8_lossy(&request[..bytes]).into_owned();
+                dbg!(&request);
+
+                handle_request(s, request, dir.clone());
             }
             Err(e) => {
                 println!("error: {}", e);
             }
         }
     }
+
+    Ok(())
 }
