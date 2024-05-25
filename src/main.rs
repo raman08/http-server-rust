@@ -1,4 +1,7 @@
 use anyhow::Result;
+use base64::engine::general_purpose;
+use base64::Engine;
+use flate2::write::GzEncoder;
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -29,11 +32,17 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
                     match encoding {
                         Some(encoding) => {
                             if encoding.contains("gzip") {
+                                let mut encoder =
+                                    GzEncoder::new(Vec::new(), flate2::Compression::default());
+                                encoder.write_all(word.as_bytes()).unwrap();
+                                let encoded_content = encoder.finish().unwrap();
+                                let encoded_content =
+                                    general_purpose::STANDARD.encode(&encoded_content);
+
                                 format!(
                                     "{}\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n{}",
                                     RESPONSE_200,
-                                    word.len(),
-                                    word
+                                    encoded_content.len(), encoded_content
                                 )
                             } else {
                                 format!(
