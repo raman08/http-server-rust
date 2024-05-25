@@ -1,11 +1,11 @@
 use anyhow::Result;
-use base64::engine::general_purpose;
-use base64::Engine;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use std::env;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::str;
 
 use itertools::Itertools;
 
@@ -21,7 +21,7 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
         "GET" => match rest.split_once(" ") {
             Some((path, _)) => {
                 if path == "/" {
-                    format!("{}\r\n\r\n", RESPONSE_200).to_string()
+                    format!("{}\r\n\r\n", RESPONSE_200).into_bytes()
                 } else if path.starts_with("/echo") {
                     let word = path.strip_prefix("/echo/").unwrap();
 
@@ -32,35 +32,36 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
                     match encoding {
                         Some(encoding) => {
                             if encoding.contains("gzip") {
-                                let mut encoder =
-                                    GzEncoder::new(Vec::new(), flate2::Compression::default());
+                                let mut encoder = GzEncoder::new(vec![], Compression::default());
                                 encoder.write_all(word.as_bytes()).unwrap();
-                                let encoded_content = encoder.finish().unwrap();
-                                let encoded_content =
-                                    general_purpose::STANDARD.encode(&encoded_content);
 
-                                format!(
-                                    "{}\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n{}",
+                                let encoded_content = encoder.finish().unwrap();
+
+                                let headers = format!(
+                                    "{}\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n",
                                     RESPONSE_200,
-                                    encoded_content.len(), encoded_content
-                                )
+                                    encoded_content.len(),
+                                );
+
+                                let mut response = headers.into_bytes();
+                                response.extend_from_slice(&encoded_content);
+                                response
                             } else {
                                 format!(
                                     "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
                                     RESPONSE_200,
                                     word.len(),
                                     word
-                                )
+                                ).into_bytes()
                             }
                         }
-                        None => {
-                            format!(
-                                "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                                RESPONSE_200,
-                                word.len(),
-                                word
-                            )
-                        }
+                        None => format!(
+                            "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                            RESPONSE_200,
+                            word.len(),
+                            word
+                        )
+                        .into_bytes(),
                     }
                 } else if path.starts_with("/user-agent") {
                     let user_agent = rest_lines
@@ -76,6 +77,7 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
                         user_agent.len(),
                         user_agent
                     )
+                    .into_bytes()
                 } else if path.starts_with("/files") {
                     let file = path.strip_prefix("/files").unwrap();
 
@@ -86,15 +88,15 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
                                 RESPONSE_200,
                                 content.len(),
                                 content
-                            )
+                            ).into_bytes()
                         }
-                        Err(_) => RESPONSE_404.to_string(),
+                        Err(_) => RESPONSE_404.into(),
                     }
                 } else {
-                    RESPONSE_404.to_string()
+                    RESPONSE_404.into()
                 }
             }
-            None => "HTTP/1.1 400 Bad Request\r\n\r\n".to_string(),
+            None => "HTTP/1.1 400 Bad Request\r\n\r\n".into(),
         },
         "POST" => match rest.split_once(" ") {
             Some((path, _)) => {
@@ -108,17 +110,17 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
 
                     file.write_all(content.as_bytes()).unwrap();
 
-                    format!("{}\r\n\r\n", RESPONSE_201)
+                    format!("{}\r\n\r\n", RESPONSE_201).into_bytes()
                 } else {
-                    RESPONSE_404.to_string()
+                    RESPONSE_404.into()
                 }
             }
-            None => "HTTP/1.1 400 Bad Request\r\n\r\n".to_string(),
+            None => "HTTP/1.1 400 Bad Request\r\n\r\n".into(),
         },
-        _ => "HTTP/1.1 405 Method Not Allowed\r\n\r\n".to_string(),
+        _ => "HTTP/1.1 405 Method Not Allowed\r\n\r\n".into(),
     };
 
-    stream.write(response.as_bytes()).unwrap();
+    stream.write(&response).unwrap();
 }
 
 fn main() -> Result<()> {
