@@ -24,25 +24,34 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
 
                     let encoding = rest_lines
                         .split("\r\n")
-                        .find(|line| line.starts_with("Accept-Encoding"))
-                        .unwrap()
-                        .strip_prefix("Accept-Encoding: ")
-                        .unwrap();
+                        .find(|line| line.starts_with("Accept-Encoding"));
 
-                    if encoding == "gzip" {
-                        format!(
-                            "{}\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n{}",
-                            RESPONSE_200,
-                            word.len(),
-                            word
-                        )
-                    } else {
-                        format!(
-                            "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                            RESPONSE_200,
-                            word.len(),
-                            word
-                        )
+                    match encoding {
+                        Some(encoding) => {
+                            if encoding.contains("gzip") {
+                                format!(
+                                    "{}\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n{}",
+                                    RESPONSE_200,
+                                    word.len(),
+                                    word
+                                )
+                            } else {
+                                format!(
+                                    "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                                    RESPONSE_200,
+                                    word.len(),
+                                    word
+                                )
+                            }
+                        }
+                        None => {
+                            format!(
+                                "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                                RESPONSE_200,
+                                word.len(),
+                                word
+                            )
+                        }
                     }
                 } else if path.starts_with("/user-agent") {
                     let user_agent = rest_lines
