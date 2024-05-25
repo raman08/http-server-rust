@@ -21,12 +21,29 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
                     format!("{}\r\n\r\n", RESPONSE_200).to_string()
                 } else if path.starts_with("/echo") {
                     let word = path.strip_prefix("/echo/").unwrap();
-                    format!(
-                        "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
-                        RESPONSE_200,
-                        word.len(),
-                        word
-                    )
+
+                    let encoding = rest_lines
+                        .split("\r\n")
+                        .find(|line| line.starts_with("Accept-Encoding"))
+                        .unwrap()
+                        .strip_prefix("Accept-Encoding: ")
+                        .unwrap();
+
+                    if encoding == "gzip" {
+                        format!(
+                            "{}\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n{}",
+                            RESPONSE_200,
+                            word.len(),
+                            word
+                        )
+                    } else {
+                        format!(
+                            "{}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                            RESPONSE_200,
+                            word.len(),
+                            word
+                        )
+                    }
                 } else if path.starts_with("/user-agent") {
                     let user_agent = rest_lines
                         .split("\r\n")
@@ -67,15 +84,13 @@ fn handle_request(mut stream: TcpStream, request: String, dir: String) {
                     let fname = path.strip_prefix("/files").unwrap();
                     let mut file = File::create(format!("{}/{}", dir.to_owned(), fname)).unwrap();
 
-                    let content = rest_lines
-                        .split_once("\r\n\r\n").unwrap().1;
+                    let content = rest_lines.split_once("\r\n\r\n").unwrap().1;
 
                     dbg!(content);
 
                     file.write_all(content.as_bytes()).unwrap();
 
                     format!("{}\r\n\r\n", RESPONSE_201)
-
                 } else {
                     RESPONSE_404.to_string()
                 }
